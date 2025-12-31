@@ -1,0 +1,6 @@
+name: vit
+batch_size: 16
+learning_rate: 3e-4
+weight_decay: 1e-4
+pretrained: true
+timm_name: "vit_base_patch16_224"

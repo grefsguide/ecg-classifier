@@ -1,0 +1,7 @@
+root_dir: ecg_img
+splits_dir: artifacts/splits
+artifacts_dir: artifacts
+image_size: 224
+num_workers: 4
+
+class_names: ["CD", "HYP", "MI", "NORM", "STTC"]

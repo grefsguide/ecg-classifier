@@ -1,0 +1,58 @@
+services:
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: ecg_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  minio_init:
+    image: quay.io/minio/mc:latest
+    container_name: ecg_minio_init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO...' ;
+      for i in $(seq 1 30); do
+        mc alias set local http://minio:9000 minio minio123 && break;
+        echo 'MinIO not ready yet, retry...' ;
+        sleep 2;
+      done;
+      mc mb -p local/dvc || true;
+      mc mb -p local/mlflow || true;
+      mc ls local;
+      echo 'MinIO buckets ensured.';
+      exit 0
+      "
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.0
+    container_name: ecg_mlflow
+    depends_on:
+      - minio
+      - minio_init
+    ports:
+      - "8080:5000"
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root s3://mlflow
+    volumes:
+      - mlflow_data:/mlflow
+
+volumes:
+  minio_data:
+  mlflow_data:

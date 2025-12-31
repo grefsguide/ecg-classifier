@@ -1,0 +1,16 @@
+public_url: "https://disk.360.yandex.ru/d/S99scWCwHLGEfw"
+
+file_names:
+  - "ecg_img.zip"
+  - "ecg_img.z01"
+  - "ecg_img.z02"
+  - "ecg_img.z03"
+
+download_dir: "artifacts/downloads/ecg_img_archive"
+extract_dir: "ecg_img"
+
+seven_zip_path: "C:/Program Files/7-Zip/7z.exe"
+
+timeout_sec: 60
+chunk_size_bytes: 1048576
+max_retries: 5

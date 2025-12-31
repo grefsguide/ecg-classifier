@@ -1,0 +1,16 @@
+defaults:
+  - _self_
+  - data: default
+  - split: default
+  - train: default
+  - model: cnn
+  - mlflow: default
+  - download: default
+
+seed: 42
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: artifacts/runs/${now:%Y-%m-%d}/${now:%H-%M-%S}
