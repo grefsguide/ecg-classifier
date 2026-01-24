@@ -1,9 +1,3 @@
-# IMPORTANT: Local storage requirement
-
-**You need at least 400 GB of free disk space** to work with this project locally (dataset archives + extracted images + DVC cache + artifacts/checkpoints).
-
----
-
 # ECG Classifier
 
 This repository contains an end-to-end MLOps-ready training pipeline for **ECG image classification** with a future goal of integrating the model into a **Telegram bot**. The system takes an **ECG image** as input and outputs **probabilities over 5 diagnostic classes**:
