@@ -29,6 +29,16 @@ requests = "^2.32.3"
 
 dvc = { version = "^3.50.0", extras = ["s3"] }
 
+fastapi = "0.115.0"
+uvicorn = { version = "0.30.6", extras = ["standard"] }
+celery = "5.4.0"
+redis = "5.0.8"
+pyjwt = "2.9.0"
+python-multipart = "0.0.9"
+pydantic-settings = "2.5.2"
+sqlalchemy = "2.0.36"
+psycopg = { version = "3.2.3", extras = ["binary"] }
+alembic = "1.13.3"
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"
 ruff = "^0.6.8"

@@ -1,0 +1,6 @@
+outs:
+- md5: 0fd714bf01a7c3a5b59182ca4f867463.dir
+  size: 13727086975
+  nfiles: 1999
+  hash: md5
+  path: ecg_img

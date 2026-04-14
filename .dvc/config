@@ -1,0 +1,7 @@
+[core]
+    remote = storage
+['remote "storage"']
+    url = s3://ecg-bucket/dvc-store
+    endpointurl = http://minio:9000
+    access_key_id = minio
+    secret_access_key = minio123
