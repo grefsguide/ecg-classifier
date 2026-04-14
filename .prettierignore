@@ -1,0 +1,6 @@
+artifacts/
+.dvc/
+.venv/
+__pycache__/
+*.ckpt
+*.pth

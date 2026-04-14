@@ -1,19 +1,27 @@
 from __future__ import annotations
 
-from pathlib import Path
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
-import torch
 import pytorch_lightning as pl
+import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import MLFlowLogger
 
 from ecg_classifier.data.datamodule import EcgDataModule
-from ecg_classifier.models.lightning_module import EcgLightningModule
 from ecg_classifier.models.cnn_classifier import SimpleCnn
+from ecg_classifier.models.lightning_module import EcgLightningModule
 from ecg_classifier.models.vit_classifier import create_vit
 from ecg_classifier.utils.git_info import get_git_commit_id
 from ecg_classifier.utils.io_utils import ensure_dir
+
+
+@dataclass
+class TrainingArtifacts:
+    checkpoint_path: Path
+    mlflow_run_id: str | None
+
 
 def build_model(cfg) -> pl.LightningModule:
     class_names = list(cfg.data.class_names)
@@ -38,7 +46,8 @@ def build_model(cfg) -> pl.LightningModule:
     )
     return lightning_module
 
-def train(cfg) -> Path:
+
+def train(cfg) -> TrainingArtifacts:
     torch.set_float32_matmul_precision("medium")
 
     artifacts_dir = Path(cfg.data.artifacts_dir)
@@ -106,4 +115,8 @@ def train(cfg) -> Path:
     )
 
     trainer.fit(model=lightning_module, datamodule=datamodule)
-    return Path(checkpoint_callback.best_model_path)
+
+    return TrainingArtifacts(
+        checkpoint_path=Path(checkpoint_callback.best_model_path),
+        mlflow_run_id=mlflow_logger.run_id,
+    )

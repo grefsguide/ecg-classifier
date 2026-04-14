@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir --upgrade \
+    pip \
+    setuptools \
+    wheel
+
+RUN pip install --no-cache-dir "pathspec==0.11.2"
+RUN pip install --no-cache-dir "dvc[s3]==3.59.1"
+
+COPY . /app
+
+RUN chmod +x /app/scripts/data_init.sh

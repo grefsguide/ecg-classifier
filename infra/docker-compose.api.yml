@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ecg_classifier
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  data-init:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.data
+    env_file:
+      - ../.env
+    command: /app/scripts/data_init.sh
+    volumes:
+      - ..:/app
+      - shared_data:/shared-data
+    working_dir: /app
+
+  api:
+    image: ecg-classifier-app:latest
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.app
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - ../.env
+    depends_on:
+      - postgres
+      - redis
+      - data-init
+    ports:
+      - "8000:8000"
+    volumes:
+      - ..:/app
+      - shared_data:/shared-data
+    working_dir: /app
+
+  worker:
+    image: ecg-classifier-app:latest
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.app
+    command: celery -A api.celery_app:celery_app worker --loglevel=info
+    env_file:
+      - ../.env
+    depends_on:
+      - postgres
+      - redis
+      - data-init
+    volumes:
+      - ..:/app
+      - shared_data:/shared-data
+    working_dir: /app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+
+  flower:
+    image: mher/flower
+    command: >
+      celery --broker=${CELERY_BROKER_URL} flower
+      --port=${FLOWER_PORT}
+      --basic_auth=${FLOWER_BASIC_AUTH}
+    env_file:
+      - ../.env
+    depends_on:
+      - redis
+    ports:
+      - "5555:5555"
+
+volumes:
+  shared_data:
