@@ -210,3 +210,4 @@ __marimo__/
 .dvc/cache
 ecg_img
 data_registry/ecg_img
+.idea
