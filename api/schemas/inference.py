@@ -1,10 +1,13 @@
 from pydantic import BaseModel
 
 
+class InferenceEnqueueResponse(BaseModel):
+    task_id: str
+    status: str
+    queue: str
+
+
 class InferenceResponse(BaseModel):
-    model_key: str
-    model_name: str
-    checkpoint_path: str
     predicted_class: str
     confidence: float
     probabilities: dict[str, float]

@@ -22,7 +22,7 @@ if [ ! -f "${DVC_FILE}" ]; then
 fi
 
 echo "[data-init] pulling dataset via DVC"
-dvc pull "${DVC_FILE}"
+dvc pull "${DVC_FILE}" --force
 
 if [ ! -d "${SOURCE_DIR}" ]; then
   echo "[data-init] source dataset directory not found after dvc pull: ${SOURCE_DIR}"

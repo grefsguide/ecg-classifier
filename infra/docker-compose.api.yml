@@ -44,12 +44,12 @@ services:
       - shared_data:/shared-data
     working_dir: /app
 
-  worker:
+  worker-gpu:
     image: ecg-classifier-app:latest
     build:
       context: ..
       dockerfile: infra/Dockerfile.app
-    command: celery -A api.celery_app:celery_app worker --loglevel=info
+    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-gpu@%h --queues=train,infer_gpu --concurrency=1
     env_file:
       - ../.env
     depends_on:
@@ -67,6 +67,40 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [ gpu ]
+
+  worker-cpu:
+    image: ecg-classifier-app:latest
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.app
+    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-cpu@%h --queues=infer_cpu --concurrency=2
+    env_file:
+      - ../.env
+    depends_on:
+      - postgres
+      - redis
+      - data-init
+    volumes:
+      - ..:/app
+      - shared_data:/shared-data
+    working_dir: /app
+
+  telegram-bot:
+    image: ecg-classifier-app:latest
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.app
+    command: python -m tg_bot.main
+    env_file:
+      - ../.env
+    depends_on:
+      - api
+      - postgres
+      - redis
+    volumes:
+      - ..:/app
+      - shared_data:/shared-data
+    working_dir: /app
 
   flower:
     image: mher/flower
