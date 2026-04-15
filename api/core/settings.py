@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     database_url: str = Field(validation_alias="DATABASE_URL")
 
+    internal_api_base_url: str = Field(validation_alias="BOT_API_BASE_URL")
+
     flower_basic_auth: str = Field(validation_alias="FLOWER_BASIC_AUTH")
     flower_port: int = Field(default=5555, validation_alias="FLOWER_PORT")
 
