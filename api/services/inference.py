@@ -1,21 +1,31 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from threading import Lock
+from time import perf_counter
 from typing import Any
 
 import torch
 from PIL import Image
 from torchvision import transforms
 
+from api.observability.metrics import (
+    MODEL_CACHE_ENTRIES,
+    MODEL_CACHE_HITS_TOTAL,
+    MODEL_CACHE_MISSES_TOTAL,
+    observe_inference_forward,
+    observe_model_load,
+)
 from ecg_classifier.models.cnn_classifier import SimpleCnn
+from ecg_classifier.models.resnet_classifier import create_resnet
 from ecg_classifier.models.vit_classifier import create_vit
-
 
 DEFAULT_CLASS_NAMES = ["CD", "HYP", "MI", "NORM", "STTC"]
 DEFAULT_IMAGE_SIZE = 224
 DEFAULT_VIT_TIMM_NAME = "vit_base_patch16_224"
+
+_MODEL_CACHE: dict[tuple[str, str, str], torch.nn.Module] = {}
+_MODEL_CACHE_LOCK = Lock()
 
 
 @dataclass
@@ -46,6 +56,13 @@ def build_inference_model(
             num_classes=num_classes,
             pretrained=False,
         )
+    elif model_name == "resnet":
+        backbone_name = str(config_snapshot.get("backbone_name", "resnet18"))
+        model = create_resnet(
+            backbone_name=backbone_name,
+            num_classes=num_classes,
+            pretrained=False,
+        )
     else:
         raise ValueError(f"Unsupported model_name: {model_name}")
 
@@ -60,12 +77,8 @@ def extract_model_state_dict(checkpoint: dict[str, Any]) -> dict[str, torch.Tens
 
     cleaned_state_dict: dict[str, torch.Tensor] = {}
     for key, value in state_dict.items():
-        if key.startswith("model."):
-            cleaned_key = key[len("model.") :]
-        else:
-            cleaned_key = key
+        cleaned_key = key[len("model.") :] if key.startswith("model.") else key
         cleaned_state_dict[cleaned_key] = value
-
     return cleaned_state_dict
 
 
@@ -87,12 +100,69 @@ def load_model_from_checkpoint(
         class_names=class_names,
         config_snapshot=config_snapshot,
     )
-
     state_dict = extract_model_state_dict(checkpoint)
     model.load_state_dict(state_dict, strict=True)
     model.to(device)
     model.eval()
     return model
+
+
+def get_or_load_model(
+    *,
+    checkpoint_path: str | Path,
+    model_name: str,
+    model_key: str,
+    class_names: list[str],
+    config_snapshot: dict[str, Any] | None = None,
+) -> tuple[torch.nn.Module, bool, float]:
+    device = get_device().type
+    cache_key = (model_key, str(checkpoint_path), device)
+
+    started = perf_counter()
+    with _MODEL_CACHE_LOCK:
+        cached_model = _MODEL_CACHE.get(cache_key)
+
+    if cached_model is not None:
+        MODEL_CACHE_HITS_TOTAL.labels(
+            model_name=model_name,
+            model_key=model_key,
+            device=device,
+        ).inc()
+        observe_model_load(
+            model_name=model_name,
+            model_key=model_key,
+            device=device,
+            cache_hit=True,
+            seconds=perf_counter() - started,
+        )
+        return cached_model, True, perf_counter() - started
+
+    model = load_model_from_checkpoint(
+        checkpoint_path=checkpoint_path,
+        model_name=model_name,
+        class_names=class_names,
+        config_snapshot=config_snapshot,
+    )
+
+    with _MODEL_CACHE_LOCK:
+        _MODEL_CACHE[cache_key] = model
+        MODEL_CACHE_ENTRIES.set(len(_MODEL_CACHE))
+
+    MODEL_CACHE_MISSES_TOTAL.labels(
+        model_name=model_name,
+        model_key=model_key,
+        device=device,
+    ).inc()
+
+    load_seconds = perf_counter() - started
+    observe_model_load(
+        model_name=model_name,
+        model_key=model_key,
+        device=device,
+        cache_hit=False,
+        seconds=load_seconds,
+    )
+    return model, False, load_seconds
 
 
 def build_eval_transform(image_size: int) -> transforms.Compose:
@@ -115,32 +185,49 @@ def run_inference(
     file_bytes: bytes,
     checkpoint_path: str,
     model_name: str,
+    model_key: str,
     class_names: list[str] | None = None,
     config_snapshot: dict[str, Any] | None = None,
+    source: str = "api",
 ) -> InferenceResult:
     class_names = class_names or DEFAULT_CLASS_NAMES
     config_snapshot = config_snapshot or {}
 
     image_size = int(config_snapshot.get("image_size", DEFAULT_IMAGE_SIZE))
     transform = build_eval_transform(image_size=image_size)
-    image = read_image_from_bytes(file_bytes)
 
+    image = read_image_from_bytes(file_bytes)
     tensor = transform(image).unsqueeze(0)
+
     device = get_device()
     tensor = tensor.to(device)
 
-    model = load_model_from_checkpoint(
+    model, _cache_hit, _load_seconds = get_or_load_model(
         checkpoint_path=checkpoint_path,
         model_name=model_name,
+        model_key=model_key,
         class_names=class_names,
         config_snapshot=config_snapshot,
     )
 
     with torch.inference_mode():
+        forward_started = perf_counter()
         logits = model(tensor)
+        forward_seconds = perf_counter() - forward_started
+
+        observe_inference_forward(
+            model_name=model_name,
+            model_key=model_key,
+            device=device.type,
+            source=source,
+            status="success",
+            seconds=forward_seconds,
+        )
+
         probs = torch.softmax(logits, dim=1).squeeze(0).detach().cpu()
 
     top_index = int(torch.argmax(probs).item())
+
     probabilities = {
         class_name: float(probs[idx].item())
         for idx, class_name in enumerate(class_names)

@@ -1,7 +1,10 @@
+import os
+
 from celery import Celery
 from kombu import Queue
 
 from api.core.settings import settings
+from api.observability.metrics import start_worker_metrics_server
 
 VISIBILITY_TIMEOUT = 120 * 60 * 60
 
@@ -35,3 +38,9 @@ celery_app.conf.update(
         "api.tasks.inference.run_inference": {"queue": "infer_gpu"},
     },
 )
+
+if (
+    settings.prometheus_enabled
+    and os.getenv("PROMETHEUS_WORKER_SERVER_ENABLED", "false").lower() == "true"
+):
+    start_worker_metrics_server(settings.prometheus_worker_metrics_port)

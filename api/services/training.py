@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -60,6 +58,9 @@ def build_training_overrides(payload: dict[str, Any]) -> list[str]:
     if payload.get("timm_name"):
         overrides.append(f"model.timm_name={payload['timm_name']}")
 
+    if payload.get("backbone_name"):
+        overrides.append(f"model.backbone_name={payload['backbone_name']}")
+
     overrides.extend(payload.get("extra_overrides", []))
     return overrides
 
@@ -101,6 +102,21 @@ def extract_config_snapshot(cfg: Any) -> dict[str, Any]:
     if str(cfg.model.name) == "vit":
         snapshot["timm_name"] = str(cfg.model.timm_name)
         snapshot["pretrained"] = bool(cfg.model.pretrained)
+
+    if str(cfg.model.name) == "resnet":
+        snapshot["backbone_name"] = str(cfg.model.backbone_name)
+        snapshot["pretrained"] = bool(cfg.model.pretrained)
+
+    if str(cfg.model.name) == "unet_transformer":
+        snapshot["num_signal_maps"] = int(cfg.model.num_signal_maps)
+        snapshot["seq_len"] = int(cfg.model.seq_len)
+        snapshot["unet_base_channels"] = int(cfg.model.unet_base_channels)
+        snapshot["transformer_d_model"] = int(cfg.model.transformer_d_model)
+        snapshot["transformer_nhead"] = int(cfg.model.transformer_nhead)
+        snapshot["transformer_num_layers"] = int(cfg.model.transformer_num_layers)
+        snapshot["transformer_ff_dim"] = int(cfg.model.transformer_ff_dim)
+        snapshot["dropout"] = float(cfg.model.dropout)
+        snapshot["softmax_temperature"] = float(cfg.model.softmax_temperature)
 
     return snapshot
 

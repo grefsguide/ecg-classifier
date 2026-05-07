@@ -59,4 +59,10 @@ class Settings(BaseSettings):
         validation_alias="SHARED_DATASET_DIR",
     )
 
+    prometheus_enabled: bool = Field(default=True, validation_alias="PROMETHEUS_ENABLED")
+    prometheus_worker_metrics_port: int = Field(
+        default=9100,
+        validation_alias="PROMETHEUS_WORKER_METRICS_PORT",
+    )
+
 settings = Settings()
