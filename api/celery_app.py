@@ -39,8 +39,5 @@ celery_app.conf.update(
     },
 )
 
-if (
-    settings.prometheus_enabled
-    and os.getenv("PROMETHEUS_WORKER_SERVER_ENABLED", "false").lower() == "true"
-):
+if settings.prometheus_enabled and os.getenv("PROMETHEUS_WORKER_SERVER_ENABLED", "false").lower() == "true":
     start_worker_metrics_server(settings.prometheus_worker_metrics_port)

@@ -15,6 +15,8 @@ class ExperimentCreate(BaseModel):
     timm_name: str | None = None
     make_default: bool = False
     display_name: str | None = None
+    ece_bins: int | None = None
+    log_train_prob_metrics: bool | None = None
     tags: dict[str, Any] = Field(default_factory=dict)
     extra_overrides: list[str] = Field(default_factory=list)
 

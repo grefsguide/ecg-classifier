@@ -59,7 +59,16 @@ class Settings(BaseSettings):
         validation_alias="SHARED_DATASET_DIR",
     )
 
+    artifact_cache_dir: str = Field(
+        default="/shared-data/model_cache",
+        validation_alias="ARTIFACT_CACHE_DIR",
+    )
+
     prometheus_enabled: bool = Field(default=True, validation_alias="PROMETHEUS_ENABLED")
+    prometheus_worker_server_enabled: bool = Field(
+        default=False,
+        validation_alias="PROMETHEUS_WORKER_SERVER_ENABLED",
+    )
     prometheus_worker_metrics_port: int = Field(
         default=9100,
         validation_alias="PROMETHEUS_WORKER_METRICS_PORT",

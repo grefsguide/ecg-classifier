@@ -11,7 +11,7 @@ from ecg_classifier.commands import _ensure_dataset_available, _ensure_splits_av
 from ecg_classifier.training.eval import evaluate
 from ecg_classifier.training.train import train
 from ecg_classifier.utils.seed import seed_everything
-
+from api.services.artifact_storage import log_file_to_mlflow
 from api.services.metrics import load_test_metrics
 from api.core.settings import settings
 
@@ -51,6 +51,14 @@ def build_training_overrides(payload: dict[str, Any]) -> list[str]:
 
     if payload.get("weight_decay") is not None:
         overrides.append(f"model.weight_decay={payload['weight_decay']}")
+
+    if payload.get("ece_bins") is not None:
+        overrides.append(f"model.ece_bins={int(payload['ece_bins'])}")
+
+    if payload.get("log_train_prob_metrics") is not None:
+        overrides.append(
+            f"model.log_train_prob_metrics={str(payload['log_train_prob_metrics']).lower()}"
+        )
 
     if payload.get("pretrained") is not None:
         overrides.append(f"model.pretrained={str(payload['pretrained']).lower()}")
@@ -97,6 +105,8 @@ def extract_config_snapshot(cfg: Any) -> dict[str, Any]:
         "weight_decay": float(cfg.model.weight_decay),
         "split_name": str(cfg.split.output_name),
         "max_epochs": int(cfg.train.max_epochs),
+        "ece_bins": int(cfg.model.ece_bins),
+        "log_train_prob_metrics": bool(cfg.model.log_train_prob_metrics),
     }
 
     if str(cfg.model.name) == "vit":
@@ -142,6 +152,20 @@ def run_training_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
     metrics_path = evaluate(cfg=cfg, checkpoint_path=checkpoint_path)
     metrics = load_test_metrics(metrics_path)
 
+    checkpoint_uri = log_file_to_mlflow(
+        run_id=training_artifacts.mlflow_run_id,
+        local_path=checkpoint_path,
+        artifact_dir="checkpoints",
+    )
+
+    metrics_uri = log_file_to_mlflow(
+        run_id=training_artifacts.mlflow_run_id,
+        local_path=metrics_path,
+        artifact_dir="metrics",
+    )
+
+    storage_backend = "mlflow" if training_artifacts.mlflow_run_id else "local"
+
     model_key = build_model_key(str(cfg.model.name))
     display_name = build_display_name(payload, cfg)
     config_snapshot = extract_config_snapshot(cfg)
@@ -159,4 +183,7 @@ def run_training_pipeline(payload: dict[str, Any]) -> dict[str, Any]:
         "make_default": bool(payload.get("make_default", False)),
         "applied_overrides": overrides,
         "metrics_path": str(metrics_path),
+        "checkpoint_uri": checkpoint_uri,
+        "metrics_uri": metrics_uri,
+        "storage_backend": storage_backend,
     }

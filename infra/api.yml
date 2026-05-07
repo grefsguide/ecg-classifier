@@ -49,7 +49,7 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.app
-    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-gpu@%h --queues=train,infer_gpu --concurrency=1
+    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-gpu@%h --queues=train,infer_gpu --pool=solo --concurrency=1
     environment:
         PROMETHEUS_WORKER_SERVER_ENABLED: "true"
         PROMETHEUS_WORKER_METRICS_PORT: "9101"
@@ -63,6 +63,8 @@ services:
       - ..:/app
       - shared_data:/shared-data
     working_dir: /app
+    ports:
+      - "9101:9101"
     deploy:
       resources:
         reservations:
@@ -76,7 +78,7 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.app
-    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-cpu@%h --queues=infer_cpu --concurrency=1
+    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-cpu@%h --queues=infer_cpu --pool=solo --concurrency=1
     environment:
       PROMETHEUS_WORKER_SERVER_ENABLED: "true"
       PROMETHEUS_WORKER_METRICS_PORT: "9102"
@@ -90,6 +92,8 @@ services:
       - ..:/app
       - shared_data:/shared-data
     working_dir: /app
+    ports:
+      - "9102:9102"
 
   telegram-bot:
     image: ecg-classifier-app:latest

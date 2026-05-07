@@ -19,6 +19,7 @@ from api.observability.metrics import (
 from ecg_classifier.models.cnn_classifier import SimpleCnn
 from ecg_classifier.models.resnet_classifier import create_resnet
 from ecg_classifier.models.vit_classifier import create_vit
+from api.services.artifact_storage import resolve_artifact_uri
 
 DEFAULT_CLASS_NAMES = ["CD", "HYP", "MI", "NORM", "STTC"]
 DEFAULT_IMAGE_SIZE = 224
@@ -88,7 +89,7 @@ def load_model_from_checkpoint(
     class_names: list[str],
     config_snapshot: dict[str, Any] | None = None,
 ) -> torch.nn.Module:
-    checkpoint_file = Path(checkpoint_path)
+    checkpoint_file = resolve_artifact_uri(checkpoint_path)
     if not checkpoint_file.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_file}")
 

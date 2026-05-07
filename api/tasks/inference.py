@@ -60,13 +60,27 @@ def run_inference_task(self, payload: dict) -> dict:
             if "pretrained" not in config_snapshot:
                 config_snapshot["pretrained"] = tags.get("pretrained") in {"true", "imagenet", "1", True}
 
+        if model.model_name == "vit":
+            if not config_snapshot.get("timm_name"):
+                config_snapshot["timm_name"] = (
+                        tags.get("timm_name")
+                        or tags.get("backbone_name")
+                        or tags.get("backbone")
+                        or "vit_base_patch16_224"
+                )
+
+            if "pretrained" not in config_snapshot:
+                config_snapshot["pretrained"] = False
+
+        checkpoint_ref = model.checkpoint_uri or model.checkpoint_path
+
         result = run_inference(
             file_bytes=file_bytes,
-            checkpoint_path=model.checkpoint_path,
+            checkpoint_path=checkpoint_ref,
             model_name=model.model_name,
             model_key=model.model_key,
             class_names=list(model.config_snapshot.get("class_names", DEFAULT_CLASS_NAMES)),
-            config_snapshot=model.config_snapshot,
+            config_snapshot=config_snapshot,
             source=source,
         )
 
