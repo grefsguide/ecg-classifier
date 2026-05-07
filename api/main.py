@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from api.core.settings import settings
+from api.observability.metrics import PrometheusHttpMetricsMiddleware, mount_metrics_endpoint
 from api.routers.admin_experiments import router as admin_experiments_router
 from api.routers.admin_models import router as admin_models_router
 from api.routers.auth import router as auth_router
@@ -10,6 +11,9 @@ from api.routers.tasks import router as tasks_router
 from api.routers.tg_history import router as telegram_history_router
 
 app = FastAPI(title=settings.app_name)
+
+app.add_middleware(PrometheusHttpMetricsMiddleware)
+mount_metrics_endpoint(app)
 
 app.include_router(auth_router)
 app.include_router(admin_models_router)

@@ -50,6 +50,9 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.app
     command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-gpu@%h --queues=train,infer_gpu --concurrency=1
+    environment:
+        PROMETHEUS_WORKER_SERVER_ENABLED: "true"
+        PROMETHEUS_WORKER_METRICS_PORT: "9101"
     env_file:
       - ../.env
     depends_on:
@@ -73,7 +76,10 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.app
-    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-cpu@%h --queues=infer_cpu --concurrency=2
+    command: celery -A api.celery_app:celery_app worker --loglevel=info --hostname=worker-cpu@%h --queues=infer_cpu --concurrency=1
+    environment:
+      PROMETHEUS_WORKER_SERVER_ENABLED: "true"
+      PROMETHEUS_WORKER_METRICS_PORT: "9102"
     env_file:
       - ../.env
     depends_on:
@@ -115,5 +121,31 @@ services:
     ports:
       - "5555:5555"
 
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - worker-gpu
+      - worker-cpu
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
 volumes:
   shared_data:
+  grafana_data:
