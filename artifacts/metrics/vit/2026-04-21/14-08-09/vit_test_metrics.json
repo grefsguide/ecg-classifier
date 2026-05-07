@@ -1,0 +1,18 @@
+{
+  "model_name": "vit",
+  "split_name": "split_v2",
+  "checkpoint_path": "/app/artifacts/checkpoints/vit/2026-04-21/14-08-09/vit.ckpt",
+  "saved_at": "2026-04-21T15:45:09",
+  "results": [
+    {
+      "test/loss": 0.28213319182395935,
+      "test/recall": 0.9022105932235718,
+      "test/precision": 0.9078804850578308,
+      "test/f1": 0.9030783176422119,
+      "test/auroc": 0.9901633262634277,
+      "test/pr_auc": 0.9697871208190918,
+      "test/ece": 0.028157323598861694,
+      "test/brier": 0.1417044848203659
+    }
+  ]
+}

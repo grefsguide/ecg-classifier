@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +10,9 @@ from pytorch_lightning.loggers import MLFlowLogger
 from ecg_classifier.data.datamodule import EcgDataModule
 from ecg_classifier.models.cnn_classifier import SimpleCnn
 from ecg_classifier.models.lightning_module import EcgLightningModule
+from ecg_classifier.models.resnet_classifier import create_resnet
 from ecg_classifier.models.vit_classifier import create_vit
+from ecg_classifier.models.unet_transformer import UnetSeriesTransformer
 from ecg_classifier.utils.git_info import get_git_commit_id
 from ecg_classifier.utils.io_utils import ensure_dir
 
@@ -35,6 +35,26 @@ def build_model(cfg) -> pl.LightningModule:
             num_classes=num_classes,
             pretrained=bool(cfg.model.pretrained),
         )
+    elif cfg.model.name == "resnet":
+        neural_network = create_resnet(
+            backbone_name=str(cfg.model.backbone_name),
+            num_classes=num_classes,
+            pretrained=bool(cfg.model.pretrained),
+        )
+    elif cfg.model.name == "unet_transformer":
+        neural_network = UnetSeriesTransformer(
+            num_classes=num_classes,
+            in_channels=3,
+            num_signal_maps=int(cfg.model.num_signal_maps),
+            seq_len=int(cfg.model.seq_len),
+            unet_base_channels=int(cfg.model.unet_base_channels),
+            transformer_d_model=int(cfg.model.transformer_d_model),
+            transformer_nhead=int(cfg.model.transformer_nhead),
+            transformer_num_layers=int(cfg.model.transformer_num_layers),
+            transformer_ff_dim=int(cfg.model.transformer_ff_dim),
+            dropout=float(cfg.model.dropout),
+            softmax_temperature=float(cfg.model.softmax_temperature),
+        )
     else:
         raise ValueError(f"Unknown model.name: {cfg.model.name}")
 
@@ -43,6 +63,8 @@ def build_model(cfg) -> pl.LightningModule:
         num_classes=num_classes,
         learning_rate=float(cfg.model.learning_rate),
         weight_decay=float(cfg.model.weight_decay),
+        ece_bins=int(cfg.model.ece_bins),
+        log_train_prob_metrics=bool(cfg.model.log_train_prob_metrics),
     )
     return lightning_module
 
@@ -52,7 +74,8 @@ def train(cfg) -> TrainingArtifacts:
 
     artifacts_dir = Path(cfg.data.artifacts_dir)
     date_str = datetime.now().strftime("%Y-%m-%d")
-    checkpoints_dir = artifacts_dir / "checkpoints" / str(cfg.model.name) / date_str
+    time_str = datetime.now().strftime("%H-%M-%S")
+    checkpoints_dir = artifacts_dir / "checkpoints" / str(cfg.model.name) / date_str / time_str
     ensure_dir(checkpoints_dir)
 
     mlflow_logger = MLFlowLogger(
@@ -101,8 +124,7 @@ def train(cfg) -> TrainingArtifacts:
         callbacks=[checkpoint_callback],
     )
 
-    trainer.logger.log_hyperparams(
-        {
+    hyperparams = {
             "seed": int(cfg.seed),
             "model_name": str(cfg.model.name),
             "learning_rate": float(cfg.model.learning_rate),
@@ -111,8 +133,30 @@ def train(cfg) -> TrainingArtifacts:
             "image_size": int(cfg.data.image_size),
             "split_name": str(cfg.split.output_name),
             "git_commit_id": git_commit_id,
-        }
-    )
+            "ece_bins": int(cfg.model.ece_bins),
+            "log_train_prob_metrics": bool(cfg.model.log_train_prob_metrics),
+    }
+
+    if str(cfg.model.name) == "vit":
+        hyperparams["timm_name"] = str(cfg.model.timm_name)
+        hyperparams["pretrained"] = bool(cfg.model.pretrained)
+
+    if str(cfg.model.name) == "resnet":
+        hyperparams["backbone_name"] = str(cfg.model.backbone_name)
+        hyperparams["pretrained"] = bool(cfg.model.pretrained)
+
+    if str(cfg.model.name) == "unet_transformer":
+        hyperparams["num_signal_maps"] = int(cfg.model.num_signal_maps)
+        hyperparams["seq_len"] = int(cfg.model.seq_len)
+        hyperparams["unet_base_channels"] = int(cfg.model.unet_base_channels)
+        hyperparams["transformer_d_model"] = int(cfg.model.transformer_d_model)
+        hyperparams["transformer_nhead"] = int(cfg.model.transformer_nhead)
+        hyperparams["transformer_num_layers"] = int(cfg.model.transformer_num_layers)
+        hyperparams["transformer_ff_dim"] = int(cfg.model.transformer_ff_dim)
+        hyperparams["dropout"] = float(cfg.model.dropout)
+        hyperparams["softmax_temperature"] = float(cfg.model.softmax_temperature)
+
+    trainer.logger.log_hyperparams(hyperparams)
 
     trainer.fit(model=lightning_module, datamodule=datamodule)
 

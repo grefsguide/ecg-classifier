@@ -3,6 +3,8 @@ from kombu import Queue
 
 from api.core.settings import settings
 
+VISIBILITY_TIMEOUT = 120 * 60 * 60
+
 celery_app = Celery(
     "ecg_api",
     broker=settings.celery_broker_url,
@@ -21,7 +23,8 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     worker_prefetch_multiplier=1,
-    task_acks_late=True,
+    broker_transport_options={"visibility_timeout": VISIBILITY_TIMEOUT},
+    result_backend_transport_options={"visibility_timeout": VISIBILITY_TIMEOUT},
     task_queues=(
         Queue("train"),
         Queue("infer_gpu"),

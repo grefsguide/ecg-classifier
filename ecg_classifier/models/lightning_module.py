@@ -1,11 +1,55 @@
-from __future__ import annotations
-
 import torch
 import torch.nn.functional as functional
 from pytorch_lightning import LightningModule
 from torch import nn
-from torchmetrics.classification import MulticlassAUROC, MulticlassPrecision, MulticlassRecall
+from torchmetrics import Metric
+from torchmetrics.classification import (
+    MulticlassAUROC,
+    MulticlassAveragePrecision,
+    MulticlassCalibrationError,
+    MulticlassF1Score,
+    MulticlassPrecision,
+    MulticlassRecall,
+)
 
+class MulticlassBrierScore(Metric):
+    higher_is_better = False
+    is_differentiable = False
+    full_state_update = False
+
+    def __init__(self, num_classes: int) -> None:
+        super().__init__()
+        self.num_classes = num_classes
+
+        self.add_state(
+            "sum_squared_error",
+            default=torch.tensor(0.0),
+            dist_reduce_fx="sum",
+        )
+        self.add_state(
+            "total",
+            default=torch.tensor(0),
+            dist_reduce_fx="sum",
+        )
+
+    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
+        if preds.ndim != 2 or preds.size(1) != self.num_classes:
+            raise ValueError(
+                f"Expected preds shape [N, {self.num_classes}], got {tuple(preds.shape)}"
+            )
+
+        target = target.view(-1)
+        target_one_hot = functional.one_hot(
+            target,
+            num_classes=self.num_classes,
+        ).to(dtype=preds.dtype)
+
+        squared_error = torch.sum((preds - target_one_hot) ** 2, dim=1)
+        self.sum_squared_error += squared_error.sum()
+        self.total += target.numel()
+
+    def compute(self) -> torch.Tensor:
+        return self.sum_squared_error / self.total.clamp_min(1)
 
 class EcgLightningModule(LightningModule):
     def __init__(
@@ -14,28 +58,62 @@ class EcgLightningModule(LightningModule):
         num_classes: int,
         learning_rate: float,
         weight_decay: float,
+        ece_bins: int = 15,
+        log_train_prob_metrics: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
+
         self.model = model
         self.num_classes = num_classes
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
+        self.ece_bins = ece_bins
+        self.log_train_prob_metrics = log_train_prob_metrics
 
-        # Train metrics (registered as modules -> moved to device automatically)
-        self.train_recall = MulticlassRecall(num_classes=num_classes, average="macro")
-        self.train_precision = MulticlassPrecision(num_classes=num_classes, average="macro")
-        self.train_auroc = MulticlassAUROC(num_classes=num_classes, average="macro")
+        self.train_metrics = self._build_metrics(
+            include_probability_metrics=log_train_prob_metrics
+        )
+        self.val_metrics = self._build_metrics(include_probability_metrics=True)
+        self.test_metrics = self._build_metrics(include_probability_metrics=True)
 
-        # Val metrics
-        self.val_recall = MulticlassRecall(num_classes=num_classes, average="macro")
-        self.val_precision = MulticlassPrecision(num_classes=num_classes, average="macro")
-        self.val_auroc = MulticlassAUROC(num_classes=num_classes, average="macro")
+    def _build_metrics(self, include_probability_metrics: bool) -> nn.ModuleDict:
+        metrics = nn.ModuleDict(
+            {
+                "recall": MulticlassRecall(
+                    num_classes=self.num_classes,
+                    average="macro",
+                ),
+                "precision": MulticlassPrecision(
+                    num_classes=self.num_classes,
+                    average="macro",
+                ),
+                "f1": MulticlassF1Score(
+                    num_classes=self.num_classes,
+                    average="macro",
+                ),
+            }
+        )
 
-        # Test metrics
-        self.test_recall = MulticlassRecall(num_classes=num_classes, average="macro")
-        self.test_precision = MulticlassPrecision(num_classes=num_classes, average="macro")
-        self.test_auroc = MulticlassAUROC(num_classes=num_classes, average="macro")
+        if include_probability_metrics:
+            metrics["auroc"] = MulticlassAUROC(
+                num_classes=self.num_classes,
+                average="macro",
+            )
+            metrics["pr_auc"] = MulticlassAveragePrecision(
+                num_classes=self.num_classes,
+                average="macro",
+            )
+            metrics["ece"] = MulticlassCalibrationError(
+                num_classes=self.num_classes,
+                n_bins=self.ece_bins,
+                norm="l1",
+            )
+            metrics["brier"] = MulticlassBrierScore(
+                num_classes=self.num_classes,
+            )
+
+        return metrics
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         return self.model(images)
@@ -48,18 +126,22 @@ class EcgLightningModule(LightningModule):
         )
         return optimizer
 
-    def _get_metrics(self, stage_name: str):
+    def _get_metrics(self, stage_name: str) -> nn.ModuleDict:
         if stage_name == "train":
-            return self.train_recall, self.train_precision, self.train_auroc
+            return self.train_metrics
         if stage_name == "val":
-            return self.val_recall, self.val_precision, self.val_auroc
+            return self.val_metrics
         if stage_name == "test":
-            return self.test_recall, self.test_precision, self.test_auroc
+            return self.test_metrics
         raise ValueError(f"Unknown stage_name: {stage_name}")
 
     def _shared_step(self, batch: dict, stage_name: str) -> torch.Tensor:
         images: torch.Tensor = batch["image"]
-        targets_tensor = torch.as_tensor(batch["target"], device=self.device, dtype=torch.long)
+        targets_tensor = torch.as_tensor(
+            batch["target"],
+            device=self.device,
+            dtype=torch.long,
+        )
 
         logits = self(images)
         loss = functional.cross_entropy(logits, targets_tensor)
@@ -67,12 +149,22 @@ class EcgLightningModule(LightningModule):
         probabilities = torch.softmax(logits, dim=1)
         predictions = torch.argmax(probabilities, dim=1)
 
-        recall_metric, precision_metric, auroc_metric = self._get_metrics(stage_name)
-        recall_metric.update(predictions, targets_tensor)
-        precision_metric.update(predictions, targets_tensor)
-        auroc_metric.update(probabilities, targets_tensor)
+        metrics = self._get_metrics(stage_name)
+        for metric_name, metric in metrics.items():
+            if metric_name in {"auroc", "pr_auc", "ece", "brier"}:
+                metric.update(probabilities, targets_tensor)
+            else:
+                metric.update(predictions, targets_tensor)
 
-        self.log(f"{stage_name}/loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log(
+            f"{stage_name}/loss",
+            loss,
+            prog_bar=(stage_name != "test"),
+            on_step=False,
+            on_epoch=True,
+            batch_size=targets_tensor.size(0),
+            sync_dist=True,
+        )
         return loss
 
     def training_step(self, batch: dict, batch_index: int) -> torch.Tensor:
@@ -94,16 +186,14 @@ class EcgLightningModule(LightningModule):
         self._log_epoch_metrics(stage_name="test")
 
     def _log_epoch_metrics(self, stage_name: str) -> None:
-        recall_metric, precision_metric, auroc_metric = self._get_metrics(stage_name)
+        metrics = self._get_metrics(stage_name)
 
-        recall_value = recall_metric.compute()
-        precision_value = precision_metric.compute()
-        auroc_value = auroc_metric.compute()
-
-        self.log(f"{stage_name}/recall", recall_value, prog_bar=True)
-        self.log(f"{stage_name}/precision", precision_value, prog_bar=False)
-        self.log(f"{stage_name}/auroc", auroc_value, prog_bar=False)
-
-        recall_metric.reset()
-        precision_metric.reset()
-        auroc_metric.reset()
+        for metric_name, metric in metrics.items():
+            metric_value = metric.compute()
+            self.log(
+                f"{stage_name}/{metric_name}",
+                metric_value,
+                prog_bar=metric_name in {"recall", "f1"},
+                sync_dist=True,
+            )
+            metric.reset()
