@@ -157,7 +157,7 @@ This project uses:
 **4) Start MinIO + MLflow (recommended)**
 This project assume that reviewers already have MinIO and MLflow running. For local development, you can use:
 ```bash
-docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/serv.yml up -d
 ```
 
 Services:

@@ -1,0 +1,21 @@
+name: unet_transformer
+
+batch_size: 16
+learning_rate: 1e-4
+weight_decay: 1e-4
+
+ece_bins: 15
+log_train_prob_metrics: false
+
+num_signal_maps: 8
+seq_len: 256
+
+unet_base_channels: 32
+
+transformer_d_model: 128
+transformer_nhead: 8
+transformer_num_layers: 4
+transformer_ff_dim: 256
+dropout: 0.1
+
+softmax_temperature: 10.0

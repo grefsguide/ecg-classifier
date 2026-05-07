@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from datetime import datetime
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -9,9 +8,46 @@ from pytorch_lightning.loggers import MLFlowLogger
 from ecg_classifier.data.datamodule import EcgDataModule
 from ecg_classifier.models.lightning_module import EcgLightningModule
 from ecg_classifier.models.cnn_classifier import SimpleCnn
+from ecg_classifier.models.resnet_classifier import create_resnet
 from ecg_classifier.models.vit_classifier import create_vit
+from ecg_classifier.models.unet_transformer import UnetSeriesTransformer
 from ecg_classifier.utils.io_utils import save_json
 
+def _is_date_part(value: str) -> bool:
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
+def _is_time_part(value: str) -> bool:
+    try:
+        datetime.strptime(value, "%H-%M-%S")
+        return True
+    except ValueError:
+        return False
+
+def _resolve_metrics_dir(cfg, checkpoint_path: Path) -> Path:
+    artifacts_dir = Path(cfg.data.artifacts_dir)
+    model_name = str(cfg.model.name)
+
+    parent_name = checkpoint_path.parent.name
+    grandparent_name = checkpoint_path.parent.parent.name
+
+    # Поддержка обоих вариантов:
+    # old:  artifacts/checkpoints/model/YYYY-MM-DD/model.ckpt
+    # new:  artifacts/checkpoints/model/YYYY-MM-DD/HH-MM-SS/model.ckpt
+    if _is_date_part(parent_name):
+        metrics_dir = artifacts_dir / "metrics" / model_name / parent_name
+    elif _is_time_part(parent_name) and _is_date_part(grandparent_name):
+        metrics_dir = artifacts_dir / "metrics" / model_name / grandparent_name / parent_name
+    else:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        time_str = datetime.now().strftime("%H-%M-%S")
+        metrics_dir = artifacts_dir / "metrics" / model_name / date_str / time_str
+
+    return metrics_dir
 
 def load_lightning_module(cfg, checkpoint_path: Path) -> EcgLightningModule:
     class_names = list(cfg.data.class_names)
@@ -25,6 +61,26 @@ def load_lightning_module(cfg, checkpoint_path: Path) -> EcgLightningModule:
             num_classes=num_classes,
             pretrained=False,
         )
+    elif cfg.model.name == "resnet":
+        neural_network = create_resnet(
+            backbone_name=str(cfg.model.backbone_name),
+            num_classes=num_classes,
+            pretrained=False,
+        )
+    elif cfg.model.name == "unet_transformer":
+        neural_network = UnetSeriesTransformer(
+            num_classes=num_classes,
+            in_channels=3,
+            num_signal_maps=int(cfg.model.num_signal_maps),
+            seq_len=int(cfg.model.seq_len),
+            unet_base_channels=int(cfg.model.unet_base_channels),
+            transformer_d_model=int(cfg.model.transformer_d_model),
+            transformer_nhead=int(cfg.model.transformer_nhead),
+            transformer_num_layers=int(cfg.model.transformer_num_layers),
+            transformer_ff_dim=int(cfg.model.transformer_ff_dim),
+            dropout=float(cfg.model.dropout),
+            softmax_temperature=float(cfg.model.softmax_temperature),
+        )
     else:
         raise ValueError(f"Unknown model.name: {cfg.model.name}")
 
@@ -33,6 +89,8 @@ def load_lightning_module(cfg, checkpoint_path: Path) -> EcgLightningModule:
         num_classes=num_classes,
         learning_rate=float(cfg.model.learning_rate),
         weight_decay=float(cfg.model.weight_decay),
+        ece_bins=int(cfg.model.ece_bins),
+        log_train_prob_metrics=bool(cfg.model.log_train_prob_metrics),
     )
 
     checkpoint_state = torch.load(checkpoint_path, map_location="cpu")
@@ -70,6 +128,20 @@ def evaluate(cfg, checkpoint_path: Path) -> Path:
     )
 
     test_results = trainer.test(model=lightning_module, datamodule=datamodule, verbose=False)
-    metrics_path = Path(cfg.data.artifacts_dir) / "metrics" / cfg.model.name / "test_metrics.json"
-    save_json(metrics_path, {"results": test_results})
+
+    metrics_dir = _resolve_metrics_dir(cfg=cfg, checkpoint_path=checkpoint_path)
+    metrics_filename = f"{checkpoint_path.stem}_test_metrics.json"
+    metrics_path = metrics_dir / metrics_filename
+
+    save_json(
+        metrics_path,
+        {
+            "model_name": str(cfg.model.name),
+            "split_name": str(cfg.split.output_name),
+            "checkpoint_path": str(checkpoint_path),
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "results": test_results,
+        }
+    )
+
     return metrics_path
