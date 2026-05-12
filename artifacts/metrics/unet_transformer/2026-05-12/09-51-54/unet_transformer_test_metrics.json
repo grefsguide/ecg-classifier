@@ -1,0 +1,18 @@
+{
+  "model_name": "unet_transformer",
+  "split_name": "image_series_raw",
+  "checkpoint_path": "/app/artifacts/checkpoints/unet_transformer/2026-05-12/09-51-54/unet_transformer.ckpt",
+  "saved_at": "2026-05-12T12:08:41",
+  "results": [
+    {
+      "test/loss": 1.2049940824508667,
+      "test/recall": 0.9733333826065063,
+      "test/precision": 0.9720511078834534,
+      "test/f1": 0.972680070400238,
+      "test/auroc": 0.8170415759086609,
+      "test/pr_auc": 0.5742495656013489,
+      "test/ece": 0.02025257259607315,
+      "test/brier": 0.6042212843894958
+    }
+  ]
+}

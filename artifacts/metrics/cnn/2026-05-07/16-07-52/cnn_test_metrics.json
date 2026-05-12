@@ -1,0 +1,18 @@
+{
+  "model_name": "cnn",
+  "split_name": "split_v2",
+  "checkpoint_path": "/app/artifacts/checkpoints/cnn/2026-05-07/16-07-52/cnn.ckpt",
+  "saved_at": "2026-05-07T20:09:56",
+  "results": [
+    {
+      "test/loss": 0.22545644640922546,
+      "test/recall": 0.9205964803695679,
+      "test/precision": 0.9293129444122314,
+      "test/f1": 0.9203686714172363,
+      "test/auroc": 0.9945745468139648,
+      "test/pr_auc": 0.9800863265991211,
+      "test/ece": 0.031089015305042267,
+      "test/brier": 0.12202624976634979
+    }
+  ]
+}

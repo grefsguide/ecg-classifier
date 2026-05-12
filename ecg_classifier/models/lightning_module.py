@@ -60,6 +60,8 @@ class EcgLightningModule(LightningModule):
         weight_decay: float,
         ece_bins: int = 15,
         log_train_prob_metrics: bool = False,
+        use_signal_supervision: bool = False,
+        signal_loss_weight: float = 0.2,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -70,6 +72,9 @@ class EcgLightningModule(LightningModule):
         self.weight_decay = weight_decay
         self.ece_bins = ece_bins
         self.log_train_prob_metrics = log_train_prob_metrics
+
+        self.use_signal_supervision = use_signal_supervision
+        self.signal_loss_weight = signal_loss_weight
 
         self.train_metrics = self._build_metrics(
             include_probability_metrics=log_train_prob_metrics
@@ -133,7 +138,63 @@ class EcgLightningModule(LightningModule):
             return self.val_metrics
         if stage_name == "test":
             return self.test_metrics
+
         raise ValueError(f"Unknown stage_name: {stage_name}")
+
+    def _prepare_target_signal(
+        self,
+        target_signal: torch.Tensor,
+        predicted_series: torch.Tensor,
+    ) -> torch.Tensor:
+        target_signal = target_signal.to(
+            device=predicted_series.device,
+            dtype=predicted_series.dtype,
+        )
+
+        if target_signal.ndim != 3:
+            raise ValueError(
+                f"Expected target_signal shape [B, leads, time], "
+                f"got {tuple(target_signal.shape)}"
+            )
+
+        if target_signal.size(1) != predicted_series.size(1):
+            raise ValueError(
+                "Signal channel mismatch: "
+                f"target_signal has {target_signal.size(1)} channels, "
+                f"predicted_series has {predicted_series.size(1)} channels. "
+                "For PTB-XL supervised training set model.num_signal_maps=12."
+            )
+
+        target_signal = functional.adaptive_avg_pool1d(
+            target_signal,
+            output_size=predicted_series.size(-1),
+        )
+
+        return target_signal
+
+    def _forward_for_batch(
+        self,
+        images: torch.Tensor,
+        batch: dict,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        if self.use_signal_supervision:
+            if "signal" not in batch:
+                raise ValueError(
+                    "use_signal_supervision=true, but batch does not contain "
+                    "'signal'. Check split CSV: it must contain signal_path."
+                )
+
+            if not hasattr(self.model, "forward_with_series"):
+                raise ValueError(
+                    "use_signal_supervision=true, but model does not implement "
+                    "forward_with_series(images)."
+                )
+
+            logits, predicted_series = self.model.forward_with_series(images)
+            return logits, predicted_series
+
+        logits = self(images)
+        return logits, None
 
     def _shared_step(self, batch: dict, stage_name: str) -> torch.Tensor:
         images: torch.Tensor = batch["image"]
@@ -143,8 +204,47 @@ class EcgLightningModule(LightningModule):
             dtype=torch.long,
         )
 
-        logits = self(images)
-        loss = functional.cross_entropy(logits, targets_tensor)
+        logits, predicted_series = self._forward_for_batch(
+            images=images,
+            batch=batch,
+        )
+
+        classification_loss = functional.cross_entropy(logits, targets_tensor)
+        loss = classification_loss
+
+        self.log(
+            f"{stage_name}/classification_loss",
+            classification_loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            batch_size=targets_tensor.size(0),
+            sync_dist=True,
+        )
+
+        if self.use_signal_supervision:
+            if predicted_series is None:
+                raise ValueError(
+                    "use_signal_supervision=true, but predicted_series is None."
+                )
+
+            target_signal = self._prepare_target_signal(
+                target_signal=batch["signal"],
+                predicted_series=predicted_series,
+            )
+
+            signal_loss = functional.mse_loss(predicted_series, target_signal)
+            loss = classification_loss + self.signal_loss_weight * signal_loss
+
+            self.log(
+                f"{stage_name}/signal_loss",
+                signal_loss,
+                prog_bar=(stage_name != "test"),
+                on_step=False,
+                on_epoch=True,
+                batch_size=targets_tensor.size(0),
+                sync_dist=True,
+            )
 
         probabilities = torch.softmax(logits, dim=1)
         predictions = torch.argmax(probabilities, dim=1)
@@ -165,6 +265,7 @@ class EcgLightningModule(LightningModule):
             batch_size=targets_tensor.size(0),
             sync_dist=True,
         )
+
         return loss
 
     def training_step(self, batch: dict, batch_index: int) -> torch.Tensor:
@@ -190,10 +291,12 @@ class EcgLightningModule(LightningModule):
 
         for metric_name, metric in metrics.items():
             metric_value = metric.compute()
+
             self.log(
                 f"{stage_name}/{metric_name}",
                 metric_value,
                 prog_bar=metric_name in {"recall", "f1"},
                 sync_dist=True,
             )
+
             metric.reset()

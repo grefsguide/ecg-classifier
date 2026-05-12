@@ -212,6 +212,10 @@ ecg_img
 data_registry/ecg_img
 /.idea
 artifacts/checkpoints/
+artifacts/series/
+/PTB-XL
+/raw_images
+
 *.ckpt
 *.pt
 *.pth

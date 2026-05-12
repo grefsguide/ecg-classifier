@@ -65,6 +65,8 @@ def build_model(cfg) -> pl.LightningModule:
         weight_decay=float(cfg.model.weight_decay),
         ece_bins=int(cfg.model.ece_bins),
         log_train_prob_metrics=bool(cfg.model.log_train_prob_metrics),
+        use_signal_supervision=bool(cfg.model.get("use_signal_supervision", False)),
+        signal_loss_weight=float(cfg.model.get("signal_loss_weight", 0.2)),
     )
     return lightning_module
 
@@ -98,6 +100,7 @@ def train(cfg) -> TrainingArtifacts:
         image_size=int(cfg.data.image_size),
         batch_size=int(cfg.model.batch_size),
         num_workers=int(cfg.data.num_workers),
+        signal_length=int(cfg.data.get("signal_length", 5000)),
     )
 
     lightning_module = build_model(cfg=cfg)
@@ -155,6 +158,9 @@ def train(cfg) -> TrainingArtifacts:
         hyperparams["transformer_ff_dim"] = int(cfg.model.transformer_ff_dim)
         hyperparams["dropout"] = float(cfg.model.dropout)
         hyperparams["softmax_temperature"] = float(cfg.model.softmax_temperature)
+        hyperparams["use_signal_supervision"] = bool(cfg.model.get("use_signal_supervision", False))
+        hyperparams["signal_loss_weight"] = float(cfg.model.get("signal_loss_weight", 0.2))
+        hyperparams["signal_length"] = int(cfg.data.get("signal_length", 5000))
 
     trainer.logger.log_hyperparams(hyperparams)
 

@@ -91,6 +91,8 @@ def load_lightning_module(cfg, checkpoint_path: Path) -> EcgLightningModule:
         weight_decay=float(cfg.model.weight_decay),
         ece_bins=int(cfg.model.ece_bins),
         log_train_prob_metrics=bool(cfg.model.log_train_prob_metrics),
+        use_signal_supervision=bool(cfg.model.get("use_signal_supervision", False)),
+        signal_loss_weight=float(cfg.model.get("signal_loss_weight", 0.2)),
     )
 
     checkpoint_state = torch.load(checkpoint_path, map_location="cpu")
@@ -116,6 +118,7 @@ def evaluate(cfg, checkpoint_path: Path) -> Path:
         image_size=int(cfg.data.image_size),
         batch_size=int(cfg.model.batch_size),
         num_workers=int(cfg.data.num_workers),
+        signal_length=int(cfg.data.get("signal_length", 5000)),
     )
 
     lightning_module = load_lightning_module(cfg=cfg, checkpoint_path=checkpoint_path)

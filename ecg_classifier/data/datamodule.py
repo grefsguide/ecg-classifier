@@ -18,6 +18,7 @@ class EcgDataModule(pl.LightningDataModule):
         image_size: int,
         batch_size: int,
         num_workers: int,
+        signal_length: int = 5000,
     ) -> None:
         super().__init__()
         self.data_root = data_root
@@ -28,6 +29,7 @@ class EcgDataModule(pl.LightningDataModule):
         self.image_size = image_size
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.signal_length = signal_length
 
         self.train_transform = transforms.Compose(
             [
@@ -56,18 +58,21 @@ class EcgDataModule(pl.LightningDataModule):
             split_csv=self.train_csv,
             class_names=self.class_names,
             transform=self.train_transform,
+            signal_length=self.signal_length,
         )
         self.val_dataset = EcgImageDataset(
             data_root=self.data_root,
             split_csv=self.val_csv,
             class_names=self.class_names,
             transform=self.eval_transform,
+            signal_length=self.signal_length,
         )
         self.test_dataset = EcgImageDataset(
             data_root=self.data_root,
             split_csv=self.test_csv,
             class_names=self.class_names,
             transform=self.eval_transform,
+            signal_length=self.signal_length,
         )
 
     def train_dataloader(self) -> DataLoader:

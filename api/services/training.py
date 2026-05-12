@@ -127,6 +127,9 @@ def extract_config_snapshot(cfg: Any) -> dict[str, Any]:
         snapshot["transformer_ff_dim"] = int(cfg.model.transformer_ff_dim)
         snapshot["dropout"] = float(cfg.model.dropout)
         snapshot["softmax_temperature"] = float(cfg.model.softmax_temperature)
+        snapshot["use_signal_supervision"] = bool(cfg.model.get("use_signal_supervision", False))
+        snapshot["signal_loss_weight"] = float(cfg.model.get("signal_loss_weight", 0.2))
+        snapshot["signal_length"] = int(cfg.data.get("signal_length", 5000))
 
     return snapshot
 
