@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-init
+  namespace: ecg-classifier
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: data-init
+          image: ecg-classifier-data-init:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ecg-config
+            - secretRef:
+                name: ecg-secret
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

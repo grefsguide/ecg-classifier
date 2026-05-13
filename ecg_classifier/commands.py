@@ -10,6 +10,12 @@ from ecg_classifier.data.split_data import split_and_save
 from ecg_classifier.training.eval import evaluate
 from ecg_classifier.training.train import train
 from ecg_classifier.utils.seed import seed_everything
+from ecg_classifier.data.raw_image_series_builder import (
+    build_raw_image_series_manifest,
+    export_ptbxl_signals_from_manifest,
+    split_manifest_grouped_by_ecg_id,
+    validate_image_series_split,
+)
 
 def _compose_cfg(overrides: list[str]) -> Any:
     with initialize_config_module(config_module="ecg_classifier.conf", version_base=None):
@@ -192,6 +198,63 @@ class Commands:
         print(f"  dvc add {Path(cfg.download.extract_dir)}")
         print('  git add . && git commit -m "Add ECG dataset (archive + extracted)"')
         print("  dvc push")
+
+    def build_raw_image_series_dataset(
+        self,
+        raw_images_root: str = "raw_images",
+        ptbxl_root: str = "PTB-XL",
+        output_manifest: str = "artifacts/manifests/raw_image_series_manifest.csv",
+        series_dir: str = "artifacts/series/ptbxl_hr",
+        split_output_dir: str = "artifacts/splits/image_series_raw",
+        train_ratio: float = 0.7,
+        val_ratio: float = 0.15,
+        test_ratio: float = 0.15,
+        seed: int = 42,
+        force_export: bool = False,
+    ) -> None:
+        raw_images_root_path = Path(raw_images_root)
+        ptbxl_root_path = Path(ptbxl_root)
+        metadata_csv = ptbxl_root_path / "ptbxl_database.csv"
+        output_manifest_path = Path(output_manifest)
+        series_dir_path = Path(series_dir)
+        split_output_dir_path = Path(split_output_dir)
+
+        class_names = ["CD", "HYP", "MI", "NORM", "STTC"]
+
+        manifest_path = build_raw_image_series_manifest(
+            raw_images_root=raw_images_root_path,
+            ptbxl_root=ptbxl_root_path,
+            metadata_csv=metadata_csv,
+            series_dir=series_dir_path,
+            output_manifest_csv=output_manifest_path,
+            class_names=class_names,
+        )
+
+        export_ptbxl_signals_from_manifest(
+            manifest_csv=manifest_path,
+            force=force_export,
+        )
+
+        split_manifest_grouped_by_ecg_id(
+            manifest_csv=manifest_path,
+            output_dir=split_output_dir_path,
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+            seed=seed,
+        )
+
+        validate_image_series_split(split_dir=split_output_dir_path)
+
+        print("\nDataset for image-series training is ready:")
+        print(f"  manifest={manifest_path}")
+        print(f"  series_dir={series_dir_path}")
+        print(f"  splits_dir={split_output_dir_path}")
+        print("\nNext step:")
+        print(
+            "  train image-series model with splits from "
+            f"{split_output_dir_path}"
+        )
 
 def main() -> None:
     fire.Fire(Commands)

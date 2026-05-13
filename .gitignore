@@ -212,6 +212,11 @@ ecg_img
 data_registry/ecg_img
 /.idea
 artifacts/checkpoints/
+artifacts/series/
+/PTB-XL
+/raw_images
+infra/k8s/base/secret.yaml
+*.secret.yaml
 *.ckpt
 *.pt
 *.pth

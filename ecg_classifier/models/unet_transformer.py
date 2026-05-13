@@ -179,14 +179,12 @@ class UnetSeriesTransformer(nn.Module):
         series = torch.sum(probabilities * y_grid, dim=2)
         return series.view(batch_size, self.num_signal_maps, -1)
 
-    def forward_features(
-        self,
-        images: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward_features(self, images: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         signal_maps = self.unet(images)
         series = self._extract_series(signal_maps)
         series = self.sequence_pool(series)  # [B, K, seq_len]
-        tokens = series.transpose(1, 2)      # [B, seq_len, K]
+
+        tokens = series.transpose(1, 2)  # [B, seq_len, K]
         tokens = self.input_projection(tokens)
 
         batch_size = tokens.size(0)
@@ -196,18 +194,20 @@ class UnetSeriesTransformer(nn.Module):
 
         encoded = self.transformer(tokens)
         cls_representation = encoded[:, 0]
-        return cls_representation, signal_maps
+        return cls_representation, signal_maps, series
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
-        cls_representation, _ = self.forward_features(images)
+        cls_representation, _signal_maps, _series = self.forward_features(images)
         logits = self.head(cls_representation)
         return logits
 
+    def forward_with_series(self, images: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        cls_representation, _signal_maps, series = self.forward_features(images)
+        logits = self.head(cls_representation)
+        return logits, series
+
     @torch.no_grad()
-    def extract_signal_maps_and_series(
-        self,
-        images: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def extract_signal_maps_and_series(self, images: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         signal_maps = self.unet(images)
         series = self._extract_series(signal_maps)
         series = self.sequence_pool(series)

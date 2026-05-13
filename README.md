@@ -1,291 +1,565 @@
 # ECG Classifier
 
-This repository contains an end-to-end MLOps-ready training pipeline for **ECG image classification** with a future goal of integrating the model into a **Telegram bot**. The system takes an **ECG image** as input and outputs **probabilities over 5 diagnostic classes**:
+An DL and MLOps project for ECG image classification and experimental ECG signal extraction from images.
 
-- **4 pathology classes**
-- **1 normal class**
+The project covers the full ML lifecycle: data preparation, model training, model registry, asynchronous inference, Telegram bot integration, monitoring, load testing, and Kubernetes deployment.
 
-The project is educational, but the intended user perspective is a patient-facing interface (Telegram bot).
-
----
-
-## Project specification
-
-### Problem statement
-
-This project solve a **5-class image classification** problem: given an ECG image uploaded by a user, predict which diagnostic superclass it belongs to:
-
-- `CD`
-- `HYP`
-- `MI`
-- `STTC`
-- `NORM`
-
-The output of the system is a probability distribution over the 5 classes, plus the predicted class (argmax).
-
-### Input and output formats
-
-**Input**
-- A single ECG image sent to the inference service (future Telegram bot integration).
-- Supported formats: `PNG`, `JPG`, `JPEG`
-- Images are preprocessed to a fixed size (default: **224×224**) and normalized.
-
-**Output**
-- A probability vector of length 5 (one probability per class).
-- Example JSON-like structure:
-  ```json
-  {
-    "probabilities": {
-      "CD": 0.12,
-      "HYP": 0.05,
-      "MI": 0.63,
-      "NORM": 0.10,
-      "STTC": 0.10
-    },
-    "predicted_class": "MI"
-  }
-  ```
-
-### Metrics
-Because this is a medical classification problem, our primary focus is to reduce false negatives for pathological cases. Therefore:
-- Primary metric: `Recall` (macro)
-- Additional metrics: `Precision` (macro), `ROC-AUC` (macro)
-All metrics are computed and logged during training/validation/testing via **PyTorch Lightning** + **MLflow**.
-
-### Validation strategy:
-The dataset is split into:
-- `train`: 0.8
-- `val`: 0.1
-- `test`: 0.1
-In that project used a stratified split per class (same class distribution across splits). The split is reproducible via a fixed random seed (default: `seed=42`), and the resulting CSV split files are stored under:
-- `artifacts/splits/<split_name>/train.csv`
-- `artifacts/splits/<split_name>/val.csv`
-- `artifacts/splits/<split_name>/test.csv`
-
-### Datasets
-The original signal source is PTB-XL:
-- https://physionet.org/content/ptb-xl/1.0.3/
-
-For this repository was used pre-generated ECG images, already organized by class folders:
-ecg_img/
-  CD/
-  HYP/
-  MI/
-  NORM/
-  STTC/
-The dataset is tracked with DVC, and stored in an S3-compatible backend (MinIO).
-
-You can see zip by the link:
-- https://disk.360.yandex.ru/d/S99scWCwHLGEfw
-
-### Modeling
-#### Baseline
-A simple CNN (`SimpleCnn`) is used as a baseline:
-- 3 convolutional blocks (Conv → BN → ReLU → MaxPool)
-- global pooling + 2-layer classifier head
-- trained with Cross Entropy loss
-
-#### Main model
-A Vision Transformer (ViT) model from `timm`:
-- default: `vit_base_patch16_224`
-- pretrained initialization supported
-- trained via PyTorch Lightning
-
-Both models are trained using the same training/evaluation pipeline.
-
-### Deployment / usage format
-
-The training and evaluation workflows are implemented as CLI commands via:
-- `Hydra` configuration system
-- `Fire` for command dispatch
-- A single entry point: `ecg_classifier/commands.py`
-
-ML experiment tracking is done with MLflow (tracking server expected at http://127.0.0.1:8080 by default).
+> This is a research and educational project. Model predictions are not medical conclusions and must not be used for self-diagnosis or clinical decision-making.
 
 ---
 
-## Technical guide
+## Table of Contents
 
-### Repository structure
+* [Project Overview](#project-overview)
+* [Diagnostic Classes](#diagnostic-classes)
+* [Modeling Approaches](#modeling-approaches)
+* [System Architecture](#system-architecture)
+* [Repository Structure](#repository-structure)
+* [Technology Stack](#technology-stack)
+* [Data and Artifacts](#data-and-artifacts)
+* [Environment Variables](#environment-variables)
+* [Kubernetes Deployment](#kubernetes-deployment)
+* [Initial Setup](#initial-setup)
+* [Main Services](#main-services)
+* [Model Training](#model-training)
+* [Inference](#inference)
+* [Monitoring](#monitoring)
+* [Telegram Bot](#telegram-bot)
+* [Tests and Load Testing](#tests-and-load-testing)
+* [Documentation](#documentation)
+* [License](#license)
 
-Key folders:
-- `ecg_classifier/` — source code (Hydra configs, training pipeline, models)
-- `ecg_img/` — ECG images dataset (tracked with DVC)
-- `artifacts/` — splits, checkpoints, metrics, run outputs (should be tracked with DVC)
-- `infra/` — docker-compose for MinIO + MLflow
-
-### Setup
-
-**1) Prerequisites**
-
-- Python 3.11
-- Poetry
-- Git
-- Docker + docker-compose (recommended, for MinIO + MLflow)
-- (Optional) NVIDIA drivers + CUDA for GPU training
-
-**2) Install dependencies**
-
-From the repo root:
-```bash
-poetry install
-```
-Choose one of the torch installation modes:
-**CPU-only**
-```bash
-poetry install --with cpu
-```
-**GPU (CUDA 12.1 wheels)**
-```bash
-poetry install --with gpu
-```
-**3) Pre-commit hooks**
-
-Install git hooks:
-```bash
-poetry run pre-commit install
-```
-Run on all files:
-```bash
-poetry run pre-commit run --all-files
-```
-This project uses:
-- `ruff` (lint + format) for Python
-- `prettier` for JSON/YAML/Markdown
-- standard `pre-commit-hooks`
-
-**4) Start MinIO + MLflow (recommended)**
-This project assume that reviewers already have MinIO and MLflow running. For local development, you can use:
-```bash
-docker compose -f infra/serv.yml up -d
-```
-
-Services:
-- MinIO API: `http://127.0.0.1:9000`
-- MinIO Console: `http://127.0.0.1:9001`
-- MLflow: `http://127.0.0.1:8080`
-The compose file also creates buckets:
-- `dvc`
-- `mlflow`
-
-**5) Configure DVC remote (MinIO)**
-Initialize DVC once:
-```bash
-dvc init
-```
-Add MinIO remote:
-```bash
-dvc remote add -d minio s3://dvc
-dvc remote modify minio endpointurl http://127.0.0.1:9000
-dvc remote modify minio access_key_id minio
-dvc remote modify minio secret_access_key minio123
-```
-
-**6) Pull dataset from DVC**
-If `ecg_img` is tracked by DVC, restore it:
-```bash
-dvc pull ecg_img.dvc
-```
-If DVC pull fails or dataset is missing, the pipeline can fall back to downloading a multipart archive from Yandex.Disk (see download_data command). You need to set download.public_url.
-
-### Train
-
-All commands are executed via a single entry point:
-```bash
-poetry run python -m ecg_classifier.commands <command> [hydra_overrides...]
-```
-Hydra overrides are appended as `key=value`, e.g. `model=vit train.max_epochs=20`.
-
-**1) (Optional) Download dataset from Yandex.Disk**
-
-This is a fallback method when `dvc pull` is not available.
-```bash
-poetry run python -m ecg_classifier.commands download_data download.public_url="https://disk.360.yandex.ru/d/S99scWCwHLGEfw"
-```
-Notes:
-- The download is multipart (`.zip`, `.z01`, `.z02`, `.z03`)
-- Extraction uses 7-Zip; configure:
-    - `download.seven_zip_path` (Windows path) or ensure 7z is in PATH
- 
-**2) Create train/val/test split**
-
-By default, split ratios are `0.8/0.1/0.1` and split name is `split_v1`.
-```bash
-poetry run python -m ecg_classifier.commands split
-```
-The split CSVs are written into:
-- `artifacts/splits/split_v1/train.csv`
-- `artifacts/splits/split_v1/val.csv`
-- `artifacts/splits/split_v1/test.csv`
-
-You can change split parameters with Hydra:
-```bash
-poetry run python -m ecg_classifier.commands split split.output_name=split_v2 split.train_ratio=0.75 split.val_ratio=0.15 split.test_ratio=0.10
-```
-
-**3) Train the baseline CNN**
-
-```bash
-poetry run python -m ecg_classifier.commands train model=cnn
-```
-Key defaults are in:
-- `ecg_classifier/conf/model/cnn.yaml`
-- `ecg_classifier/conf/train/default.yaml`
-Outputs:
-- Best checkpoint saved under `artifacts/checkpoints/cnn/<date>/cnn.ckpt` (exact path printed)
-
-**4) Train the ViT model**
-
-```bash
-poetry run python -m ecg_classifier.commands train model=vit
-```
-Defaults are in:
-- `ecg_classifier/conf/model/vit.yaml`
-
-Recommended overrides (if you hit VRAM limits):
-```bash
-poetry run python -m ecg_classifier.commands train model=vit model.batch_size=8 train.accumulate_grad_batches=2
-```
-
-**5) Evaluate a trained model on test set**
-
-Pass the checkpoint path printed during training:
-```bash
-poetry run python -m ecg_classifier.commands evaluate --checkpoint_path="artifacts/checkpoints/cnn/<date>/cnn.ckpt" model=cnn
-```
-The evaluation metrics are saved to:
-- `artifacts/metrics/<model_name>/test_metrics.json`
-
-**6) MLflow tracking**
-
-By default, MLflow is expected at:
-- `http://127.0.0.1:8080`
-Config: `ecg_classifier/conf/mlflow/default.yaml`
-
-During training:
-- metrics (`loss`, `recall`, `precision`, `roc-auc`) are logged per stage
-- hyperparameters are logged
-- `git_commit_id` is saved as an MLflow run tag
-
-### Data & artifacts versioning (DVC)
-In this project track:
-- dataset (`ecg_img/`)
-- splits (`artifacts/splits/`)
-- checkpoints (`artifacts/checkpoints/`)
-- metrics (`artifacts/metrics/`)
-- (optional) downloaded archives (`artifacts/downloads/`)
-
-Example workflow:
-```bash
-dvc add artifacts/splits artifacts/checkpoints artifacts/metrics
-git add artifacts/*.dvc .gitignore
-git commit -m "Track training artifacts with DVC"
-dvc push
-```
 ---
 
-## Hardware notes
-This project is tested on:
+## Project Overview
+
+`ecg-classifier` is a service for ECG image analysis using computer vision.
+
+The system receives an ECG image, applies preprocessing, runs the selected model, and returns:
+
+* predicted class;
+* class probabilities;
+* model confidence;
+* execution metadata.
+
+The project supports two main workflows:
+
+1. **Training and model comparison** through API-triggered Celery tasks.
+2. **Inference** through REST API and Telegram bot.
+
+---
+
+## Diagnostic Classes
+
+The project uses 5 PTB-XL diagnostic superclasses:
+
+| Class  | Meaning                |
+| ------ | ---------------------- |
+| `NORM` | Normal ECG             |
+| `MI`   | Myocardial Infarction  |
+| `STTC` | ST/T Change            |
+| `CD`   | Conduction Disturbance |
+| `HYP`  | Hypertrophy            |
+
+---
+
+## Modeling Approaches
+
+The project implements two modeling approaches.
+
+### Approach A: Direct ECG Image Classification
+
+```text
+ECG image → CNN / ResNet / ViT → class probabilities
+```
+
+Supported models:
+
+* `cnn` — baseline CNN;
+* `resnet` — ResNet / ResNeXt / WideResNet family;
+* `vit` — Vision Transformer through `timm`.
+
+This approach directly classifies ECG images.
+
+### Approach B: ECG Signal Extraction and Sequence Classification
+
+```text
+ECG image → U-Net → extracted series → Transformer → class probabilities
+```
+
+Model:
+
+* `unet_transformer`.
+
+Approach B supports two modes:
+
+1. **Latent mode** — U-Net extracts a latent time-series representation, and the model is trained only with classification loss.
+2. **Supervised signal mode** — if split CSV files contain `signal_path`, the model additionally uses PTB-XL time-series signals and trains with `classification_loss + signal_loss`.
+
+For supervised signal training, `.npy` time-series artifacts from `artifacts/series` are used.
+
+---
+
+## System Architecture
+
+Main production flow:
+
+```text
+User / Telegram
+  ↓
+Telegram Bot / API Client
+  ↓
+FastAPI
+  ↓
+Redis Queue
+  ↓
+Celery Worker
+  ↓
+Model Registry + Checkpoint Resolver
+  ↓
+PyTorch Model
+  ↓
+Prediction + Metrics
+```
+
+Components:
+
+* **FastAPI** — REST API for administration, training, inference, model registry, and Telegram request history.
+* **Celery** — asynchronous training and inference tasks.
+* **Redis** — Celery broker and result backend.
+* **PostgreSQL** — users, model registry, default model state, and Telegram history.
+* **MLflow** — experiment tracking.
+* **MinIO** — S3-compatible artifact storage for MLflow artifacts.
+* **Telegram Bot** — user-facing interface for sending ECG images.
+* **Prometheus** — technical metrics collection for API and workers.
+* **Grafana** — dashboards for latency, throughput, p95, and model comparison.
+* **Flower** — Celery task monitoring.
+* **Kubernetes** — target deployment environment.
+
+---
+
+## Repository Structure
+
+```text
+.
+├── alembic/                 # database migrations
+├── api/                     # FastAPI app, Celery tasks, services, schemas, registry
+├── artifacts/               # local artifacts: splits, checkpoints, metrics, series
+├── data_registry/           # service data registry files
+├── ecg_classifier/          # ML code: datasets, models, training, Hydra configs
+├── infra/                   # Docker and Kubernetes infrastructure
+├── markdown/                # extended documentation
+├── scripts/                 # helper scripts
+├── tests/                   # integration and load tests
+├── tg_bot/                  # Telegram bot
+├── pyproject.toml
+├── alembic.ini
+└── README.md
+```
+
+---
+
+## Technology Stack
+
+### Backend
+
+* Python 3.11
+* FastAPI
+* SQLAlchemy
+* Alembic
+* PostgreSQL
+* Redis
+* Celery
+* Flower
+
+### ML
+
+* PyTorch
+* PyTorch Lightning
+* TorchMetrics
+* torchvision
+* timm
+* MLflow
+* MinIO / S3-compatible storage
+
+### Data
+
+* PTB-XL
+* WFDB
+* ECG image dataset
+* CSV manifests and splits
+* `.npy` time-series artifacts
+
+### Infrastructure
+
+* Docker
+* Kubernetes
+* Kustomize
+* Prometheus
+* Grafana
+
+---
+
+## Data and Artifacts
+
+For the first Kubernetes deployment, data is loaded from Google Drive by the `data-init` Job.
+
+The deployment expects two `.7z` archives:
+
+```text
+PTB-XL.7z
+ecg_img.7z
+```
+
+After extraction, data is expected to be available in the shared volume:
+
+```text
+/shared-data/
+├── PTB-XL/
+└── ecg_img/
+```
+
+The project no longer uses `raw_images` as the main data source in Kubernetes. The main ECG image dataset path is:
+
+```text
+/shared-data/ecg_img
+```
+
+Training artifacts are stored under:
+
+```text
+artifacts/
+├── checkpoints/
+├── metrics/
+├── splits/
+└── series/
+```
+
+For newly trained models, the source of truth for checkpoints is the PostgreSQL model registry together with MLflow/MinIO artifact URIs. Local checkpoint files remain as fallback and debug artifacts.
+
+---
+
+## Environment Variables
+
+Runtime settings are split between Kubernetes `ConfigMap` and `Secret` resources.
+
+Example local `.env`:
+
+```env
+MLFLOW_TRACKING_URI=http://mlflow:8080
+MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+
+AWS_ACCESS_KEY_ID=<YOUR MINIO NAME>
+AWS_SECRET_ACCESS_KEY=<YOUR MINIO PASSWORD>
+
+JWT_SECRET_KEY=<SECRET_KEY>
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=600
+ADMIN_USERNAME=<YOUR ADMIN NAME>
+ADMIN_PASSWORD=<YOUR ADMMIN PASSWORD>
+
+DATABASE_URL=postgresql+psycopg://postgres:postgres@postgres:5432/ecg_classifier
+
+APP_NAME=ecg-classifier-api
+API_LOG_LEVEL=INFO
+
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/1
+
+FLOWER_BASIC_AUTH=<FLOWER NAME:FLOWER PASSWORD>
+FLOWER_PORT=5555
+
+REGISTRY_DIR=artifacts/registry
+TEMP_UPLOAD_DIR=artifacts/uploads
+
+DATASET_NAME=ecg_img
+SHARED_DATA_DIR=/shared-data
+SHARED_DATASET_DIR=/shared-data/ecg_img
+ARTIFACT_CACHE_DIR=/shared-data/model_cache
+
+TG_BOT_TOKEN=<TELEGRAM BOT TOKEN>
+BOT_API_BASE_URL=http://api:8000
+BOT_TEMP_DIR=/tmp/tg-bot
+BOT_POLL_INTERVAL_SECONDS=1.5
+BOT_POLL_TIMEOUT_SECONDS=180
+
+PROMETHEUS_ENABLED=true
+
+LOAD_REQUESTS_PER_MODEL=100
+LOAD_CONCURRENCY=4
+```
+
+---
+
+## Kubernetes Deployment
+
+### 1. Prepare secrets
+
+The repository should contain only a template:
+
+```text
+infra/k8s/base/secret.example.yaml
+```
+
+Create the real local secret file:
+
+```bash
+cp infra/k8s/base/secret.example.yaml infra/k8s/base/secret.yaml
+```
+
+Fill in the required values:
+
+* `JWT_SECRET_KEY`
+* `ADMIN_PASSWORD`
+* `POSTGRES_PASSWORD`
+* `MINIO_ROOT_PASSWORD`
+* `AWS_SECRET_ACCESS_KEY`
+* `TG_BOT_TOKEN`
+* `GDRIVE_PTBXL_ARCHIVE_URL`
+* `GDRIVE_ECG_IMG_ARCHIVE_URL`
+
+The real `secret.yaml` file is intended for local/deployment use only.
+
+### 2. Build Docker images
+
+For local `minikube`:
+
+```bash
+eval $(minikube docker-env)
+
+docker build -t ecg-classifier-app:latest -f infra/docker/Dockerfile.app .
+docker build -t ecg-classifier-data-init:latest -f infra/docker/Dockerfile.data-init .
+```
+
+For an external cluster:
+
+```bash
+docker build -t <registry>/ecg-classifier-app:latest -f infra/docker/Dockerfile.app .
+docker build -t <registry>/ecg-classifier-data-init:latest -f infra/docker/Dockerfile.data-init .
+
+docker push <registry>/ecg-classifier-app:latest
+docker push <registry>/ecg-classifier-data-init:latest
+```
+
+After pushing, update image names in Kubernetes manifests.
+
+### 3. Apply Kubernetes manifests
+
+```bash
+kubectl apply -k infra/k8s/base
+```
+
+Check the cluster state:
+
+```bash
+kubectl get pods -n ecg-classifier
+kubectl get jobs -n ecg-classifier
+```
+
+### 4. Wait for data initialization
+
+```bash
+kubectl logs -n ecg-classifier job/data-init -f
+```
+
+Check extracted data:
+
+```bash
+kubectl exec -n ecg-classifier deploy/api -- ls -lah /shared-data
+kubectl exec -n ecg-classifier deploy/api -- ls -lah /shared-data/ecg_img
+kubectl exec -n ecg-classifier deploy/api -- ls -lah /shared-data/PTB-XL
+```
+
+### 5. Run database migrations
+
+```bash
+kubectl exec -n ecg-classifier deploy/api -- alembic upgrade head
+```
+
+---
+
+## Initial Setup
+
+After the cluster starts, check resources:
+
+```bash
+kubectl get pods -n ecg-classifier
+kubectl get svc -n ecg-classifier
+```
+
+For local access, use port-forwarding.
+
+API:
+
+```bash
+kubectl port-forward -n ecg-classifier svc/api 8000:8000
+```
+
+MLflow:
+
+```bash
+kubectl port-forward -n ecg-classifier svc/mlflow 8080:8080
+```
+
+MinIO:
+
+```bash
+kubectl port-forward -n ecg-classifier svc/minio 9000:9000 9001:9001
+```
+
+Flower:
+
+```bash
+kubectl port-forward -n ecg-classifier svc/flower 5555:5555
+```
+
+Prometheus:
+
+```bash
+kubectl port-forward -n ecg-classifier svc/prometheus 9090:9090
+```
+
+Grafana:
+
+```bash
+kubectl port-forward -n ecg-classifier svc/grafana 3000:3000
+```
+
+---
+
+## Main Services
+
+| Service    | Purpose                        | Port-forward   |
+| ---------- | ------------------------------ | -------------- |
+| API        | REST API / Swagger / inference | `8000`         |
+| MLflow     | Experiment tracking            | `8080`         |
+| MinIO      | S3-compatible artifact storage | `9000`, `9001` |
+| Flower     | Celery monitoring              | `5555`         |
+| Prometheus | Metrics storage                | `9090`         |
+| Grafana    | Dashboards                     | `3000`         |
+
+Swagger UI after port-forwarding:
+
+```text
+http://localhost:8000/docs
+```
+
+Healthcheck:
+
+```bash
+curl http://localhost:8000/health
+```
+
+---
+
+## Model Training
+
+Training is triggered through the API and executed asynchronously by Celery.
+
+Supported models:
+
+* `cnn`
+* `resnet`
+* `vit`
+* `unet_transformer`
+
+Detailed API examples are available in [API markdown](markdown/API.md)
+
+---
+
+## Inference
+
+Inference can be performed through the REST API or the Telegram bot.
+
+By default, the model marked as default in the model registry is used.
+
+A specific model can also be selected by passing `model_key`. This allows multiple models to be compared without creating separate inference endpoints.
+
+```text
+POST /api/v1/inference/default
+```
+
+See details in [API markdown](markdown/API.md)
+
+---
+
+## Monitoring
+
+The project exposes technical metrics through Prometheus.
+
+Main metric groups:
+
+* API HTTP latency;
+* request throughput;
+* inference latency;
+* forward-only latency;
+* queue wait time;
+* model load latency;
+* cache hit / cache miss;
+* p95 by model;
+* comparison by `model_name` and `model_key`.
+
+Example throughput query:
+
+```promql
+sum by (model_name, model_key) (
+  rate(ecg_inference_requests_total{status="success"}[5m])
+)
+```
+
+Example p95 total latency query:
+
+```promql
+histogram_quantile(
+  0.95,
+  sum by (le, model_name, model_key) (
+    rate(ecg_inference_total_duration_seconds_bucket{status="success"}[5m])
+  )
+)
+```
+
+Grafana uses Prometheus as the default datasource.
+
+---
+
+## Telegram Bot
+
+The Telegram bot receives ECG images, sends them to the API, waits for the inference task to complete, and returns the prediction to the user.
+
+Detailed Telegram bot documentation is available in [TG-bot markdown](markdown/TG.md)
+
+
+---
+
+## Tests and Load Testing
+
+Integration tests and load testing scenarios are located in:
+
+```text
+tests/
+```
+
+The full test documentation is available in [Test markdown](markdown/TESTS.md)
+
+
+---
+
+## Documentation
+
+This README describes the project and deployment flow.
+
+Detailed documentation is stored separately:
+
+```text
+markdown/API.md    # API, auth, experiments, inference, model registry
+markdown/TG.md     # Telegram bot
+markdown/TESTS.md  # integration tests and load testing
+```
+
+---
+## Project tested localy on
 - CPU: Intel i9-12900HK
 - GPU: RTX 3080 Ti Laptop
 - RAM: 64 GB
+
+

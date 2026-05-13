@@ -19,6 +19,8 @@ from api.observability.metrics import (
 from ecg_classifier.models.cnn_classifier import SimpleCnn
 from ecg_classifier.models.resnet_classifier import create_resnet
 from ecg_classifier.models.vit_classifier import create_vit
+from api.services.artifact_storage import resolve_artifact_uri
+from ecg_classifier.models.unet_transformer import UnetSeriesTransformer
 
 DEFAULT_CLASS_NAMES = ["CD", "HYP", "MI", "NORM", "STTC"]
 DEFAULT_IMAGE_SIZE = 224
@@ -63,6 +65,20 @@ def build_inference_model(
             num_classes=num_classes,
             pretrained=False,
         )
+    elif model_name == "unet_transformer":
+        model = UnetSeriesTransformer(
+            num_classes=num_classes,
+            in_channels=3,
+            num_signal_maps=int(config_snapshot.get("num_signal_maps", 8)),
+            seq_len=int(config_snapshot.get("seq_len", 256)),
+            unet_base_channels=int(config_snapshot.get("unet_base_channels", 32)),
+            transformer_d_model=int(config_snapshot.get("transformer_d_model", 128)),
+            transformer_nhead=int(config_snapshot.get("transformer_nhead", 8)),
+            transformer_num_layers=int(config_snapshot.get("transformer_num_layers", 4)),
+            transformer_ff_dim=int(config_snapshot.get("transformer_ff_dim", 256)),
+            dropout=float(config_snapshot.get("dropout", 0.1)),
+            softmax_temperature=float(config_snapshot.get("softmax_temperature", 10.0)),
+        )
     else:
         raise ValueError(f"Unsupported model_name: {model_name}")
 
@@ -88,7 +104,7 @@ def load_model_from_checkpoint(
     class_names: list[str],
     config_snapshot: dict[str, Any] | None = None,
 ) -> torch.nn.Module:
-    checkpoint_file = Path(checkpoint_path)
+    checkpoint_file = resolve_artifact_uri(checkpoint_path)
     if not checkpoint_file.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_file}")
 

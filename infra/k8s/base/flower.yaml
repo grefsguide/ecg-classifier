@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flower
+  namespace: ecg-classifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flower
+  template:
+    metadata:
+      labels:
+        app: flower
+    spec:
+      containers:
+        - name: flower
+          image: mher/flower
+          command:
+            - /bin/sh
+            - -c
+            - |
+              celery --broker="${CELERY_BROKER_URL}" flower \
+                --port="${FLOWER_PORT}" \
+                --basic_auth="${FLOWER_BASIC_AUTH}" \
+                --persistent=True \
+                --db=/flower/flower.db \
+                --enable_events=True
+          ports:
+            - name: http
+              containerPort: 5555
+          envFrom:
+            - configMapRef:
+                name: ecg-config
+            - secretRef:
+                name: ecg-secret
+          volumeMounts:
+            - name: flower-data
+              mountPath: /flower
+      volumes:
+        - name: flower-data
+          persistentVolumeClaim:
+            claimName: flower-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flower
+  namespace: ecg-classifier
+spec:
+  selector:
+    app: flower
+  ports:
+    - name: http
+      port: 5555
+      targetPort: 5555

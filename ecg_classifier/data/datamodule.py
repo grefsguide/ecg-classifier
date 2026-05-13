@@ -18,6 +18,8 @@ class EcgDataModule(pl.LightningDataModule):
         image_size: int,
         batch_size: int,
         num_workers: int,
+        signal_length: int = 5000,
+        disable_train_augmentations: bool = False,
     ) -> None:
         super().__init__()
         self.data_root = data_root
@@ -28,21 +30,42 @@ class EcgDataModule(pl.LightningDataModule):
         self.image_size = image_size
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.signal_length = signal_length
+        self.disable_train_augmentations = disable_train_augmentations
 
-        self.train_transform = transforms.Compose(
-            [
-                transforms.Resize((image_size, image_size)),
-                transforms.RandomAffine(degrees=5, translate=(0.02, 0.02)),
-                transforms.ColorJitter(brightness=0.1, contrast=0.1),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-            ]
-        )
+        if disable_train_augmentations:
+            self.train_transform = transforms.Compose(
+                [
+                    transforms.Resize((image_size, image_size)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=[0.5, 0.5, 0.5],
+                        std=[0.5, 0.5, 0.5],
+                    ),
+                ]
+            )
+        else:
+            self.train_transform = transforms.Compose(
+                [
+                    transforms.Resize((image_size, image_size)),
+                    transforms.RandomAffine(degrees=5, translate=(0.02, 0.02)),
+                    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=[0.5, 0.5, 0.5],
+                        std=[0.5, 0.5, 0.5],
+                    ),
+                ]
+            )
+
         self.eval_transform = transforms.Compose(
             [
                 transforms.Resize((image_size, image_size)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+                transforms.Normalize(
+                    mean=[0.5, 0.5, 0.5],
+                    std=[0.5, 0.5, 0.5],
+                ),
             ]
         )
 
@@ -56,18 +79,21 @@ class EcgDataModule(pl.LightningDataModule):
             split_csv=self.train_csv,
             class_names=self.class_names,
             transform=self.train_transform,
+            signal_length=self.signal_length,
         )
         self.val_dataset = EcgImageDataset(
             data_root=self.data_root,
             split_csv=self.val_csv,
             class_names=self.class_names,
             transform=self.eval_transform,
+            signal_length=self.signal_length,
         )
         self.test_dataset = EcgImageDataset(
             data_root=self.data_root,
             split_csv=self.test_csv,
             class_names=self.class_names,
             transform=self.eval_transform,
+            signal_length=self.signal_length,
         )
 
     def train_dataloader(self) -> DataLoader:

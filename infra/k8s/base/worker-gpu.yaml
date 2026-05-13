@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-gpu
+  namespace: ecg-classifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-gpu
+  template:
+    metadata:
+      labels:
+        app: worker-gpu
+    spec:
+      initContainers:
+        - name: wait-data
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until [ -f /shared-data/ecg_img/.extracted ] && [ -f /shared-data/PTB-XL/.extracted ]; do
+                echo "Waiting for data-init..."
+                sleep 5
+              done
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      containers:
+        - name: worker-gpu
+          image: ecg-classifier-app:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - api.celery_app:celery_app
+            - worker
+            - --loglevel=info
+            - --hostname=worker-gpu@%h
+            - --queues=train,infer_gpu
+            - --pool=solo
+            - --concurrency=1
+            - --events
+          ports:
+            - name: metrics
+              containerPort: 9101
+          envFrom:
+            - configMapRef:
+                name: ecg-config
+            - secretRef:
+                name: ecg-secret
+          env:
+            - name: PROMETHEUS_WORKER_SERVER_ENABLED
+              value: "true"
+            - name: PROMETHEUS_WORKER_METRICS_PORT
+              value: "9101"
+            - name: INFERENCE_DEVICE
+              value: "cuda"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-gpu
+  namespace: ecg-classifier
+spec:
+  selector:
+    app: worker-gpu
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: 9101
