@@ -119,6 +119,7 @@ def evaluate(cfg, checkpoint_path: Path) -> Path:
         batch_size=int(cfg.model.batch_size),
         num_workers=int(cfg.data.num_workers),
         signal_length=int(cfg.data.get("signal_length", 5000)),
+        disable_train_augmentations=bool(cfg.data.get("disable_train_augmentations", False)),
     )
 
     lightning_module = load_lightning_module(cfg=cfg, checkpoint_path=checkpoint_path)

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-bot
+  namespace: ecg-classifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telegram-bot
+  template:
+    metadata:
+      labels:
+        app: telegram-bot
+    spec:
+      initContainers:
+        - name: wait-api
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until wget -qO- http://api:8000/health; do
+                echo "Waiting for API..."
+                sleep 5
+              done
+      containers:
+        - name: telegram-bot
+          image: ecg-classifier-app:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - tg_bot.main
+          envFrom:
+            - configMapRef:
+                name: ecg-config
+            - secretRef:
+                name: ecg-secret
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared-data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc

@@ -101,6 +101,7 @@ def train(cfg) -> TrainingArtifacts:
         batch_size=int(cfg.model.batch_size),
         num_workers=int(cfg.data.num_workers),
         signal_length=int(cfg.data.get("signal_length", 5000)),
+        disable_train_augmentations=bool(cfg.data.get("disable_train_augmentations", False)),
     )
 
     lightning_module = build_model(cfg=cfg)
@@ -138,6 +139,7 @@ def train(cfg) -> TrainingArtifacts:
             "git_commit_id": git_commit_id,
             "ece_bins": int(cfg.model.ece_bins),
             "log_train_prob_metrics": bool(cfg.model.log_train_prob_metrics),
+            "disable_train_augmentations": bool(cfg.data.get("disable_train_augmentations", False)),
     }
 
     if str(cfg.model.name) == "vit":
@@ -160,7 +162,8 @@ def train(cfg) -> TrainingArtifacts:
         hyperparams["softmax_temperature"] = float(cfg.model.softmax_temperature)
         hyperparams["use_signal_supervision"] = bool(cfg.model.get("use_signal_supervision", False))
         hyperparams["signal_loss_weight"] = float(cfg.model.get("signal_loss_weight", 0.2))
-        hyperparams["signal_length"] = int(cfg.data.get("signal_length", 5000))
+        hyperparams["signal_length"] = int(cfg.data.get("signal_length", 5000)),
+        hyperparams["disable_train_augmentations"] = bool(cfg.data.get("disable_train_augmentations", False))
 
     trainer.logger.log_hyperparams(hyperparams)
 

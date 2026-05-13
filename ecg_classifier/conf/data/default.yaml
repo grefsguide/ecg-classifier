@@ -4,4 +4,7 @@ artifacts_dir: artifacts
 image_size: 224
 num_workers: 4
 
+signal_length: 5000
+disable_train_augmentations: false
+
 class_names: ["CD", "HYP", "MI", "NORM", "STTC"]

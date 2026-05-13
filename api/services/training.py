@@ -107,6 +107,8 @@ def extract_config_snapshot(cfg: Any) -> dict[str, Any]:
         "max_epochs": int(cfg.train.max_epochs),
         "ece_bins": int(cfg.model.ece_bins),
         "log_train_prob_metrics": bool(cfg.model.log_train_prob_metrics),
+        "signal_length": int(cfg.data.get("signal_length", 5000)),
+        "disable_train_augmentations": bool(cfg.data.get("disable_train_augmentations", False)),
     }
 
     if str(cfg.model.name) == "vit":
@@ -130,6 +132,7 @@ def extract_config_snapshot(cfg: Any) -> dict[str, Any]:
         snapshot["use_signal_supervision"] = bool(cfg.model.get("use_signal_supervision", False))
         snapshot["signal_loss_weight"] = float(cfg.model.get("signal_loss_weight", 0.2))
         snapshot["signal_length"] = int(cfg.data.get("signal_length", 5000))
+        snapshot["disable_train_augmentations"] = bool(cfg.data.get("disable_train_augmentations", False))
 
     return snapshot
 

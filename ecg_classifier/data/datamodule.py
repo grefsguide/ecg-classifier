@@ -19,6 +19,7 @@ class EcgDataModule(pl.LightningDataModule):
         batch_size: int,
         num_workers: int,
         signal_length: int = 5000,
+        disable_train_augmentations: bool = False,
     ) -> None:
         super().__init__()
         self.data_root = data_root
@@ -30,21 +31,41 @@ class EcgDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.signal_length = signal_length
+        self.disable_train_augmentations = disable_train_augmentations
 
-        self.train_transform = transforms.Compose(
-            [
-                transforms.Resize((image_size, image_size)),
-                transforms.RandomAffine(degrees=5, translate=(0.02, 0.02)),
-                transforms.ColorJitter(brightness=0.1, contrast=0.1),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-            ]
-        )
+        if disable_train_augmentations:
+            self.train_transform = transforms.Compose(
+                [
+                    transforms.Resize((image_size, image_size)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=[0.5, 0.5, 0.5],
+                        std=[0.5, 0.5, 0.5],
+                    ),
+                ]
+            )
+        else:
+            self.train_transform = transforms.Compose(
+                [
+                    transforms.Resize((image_size, image_size)),
+                    transforms.RandomAffine(degrees=5, translate=(0.02, 0.02)),
+                    transforms.ColorJitter(brightness=0.1, contrast=0.1),
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=[0.5, 0.5, 0.5],
+                        std=[0.5, 0.5, 0.5],
+                    ),
+                ]
+            )
+
         self.eval_transform = transforms.Compose(
             [
                 transforms.Resize((image_size, image_size)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+                transforms.Normalize(
+                    mean=[0.5, 0.5, 0.5],
+                    std=[0.5, 0.5, 0.5],
+                ),
             ]
         )
 
