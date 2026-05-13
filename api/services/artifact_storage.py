@@ -96,7 +96,10 @@ def _download_mlflow_artifact_to_cache(
     cache_root = Path(cache_dir or settings.artifact_cache_dir)
     cache_root.mkdir(parents=True, exist_ok=True)
 
-    expected_local_path = cache_root / run_id / artifact_path
+    run_cache_dir = cache_root / run_id
+    run_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    expected_local_path = run_cache_dir / artifact_path
     if expected_local_path.exists():
         return expected_local_path
 
@@ -105,7 +108,7 @@ def _download_mlflow_artifact_to_cache(
     downloaded_path = client.download_artifacts(
         run_id=run_id,
         path=artifact_path,
-        dst_path=str(cache_root / run_id),
+        dst_path=str(run_cache_dir),
     )
 
     return Path(downloaded_path)
